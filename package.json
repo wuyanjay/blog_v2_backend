@@ -1,0 +1,49 @@
+{
+  "name": "blog-v2-backend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Koa + TypeScript blog backend with upgraded auth flow.",
+  "main": "dist/server.js",
+  "scripts": {
+    "dev": "ts-node-dev --respawn --transpile-only --watch src --debounce 500 src/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "seed:categories": "ts-node --transpile-only scripts/seed-categories.ts"
+  },
+  "dependencies": {
+    "@koa/cors": "^5.0.0",
+    "@koa/multer": "^4.0.0",
+    "@koa/router": "^12.0.1",
+    "ali-oss": "^6.23.0",
+    "bcryptjs": "^2.4.3",
+    "dompurify": "^3.1.6",
+    "dotenv": "^16.4.5",
+    "ioredis": "^5.4.1",
+    "joi": "^17.13.3",
+    "jsdom": "^25.0.1",
+    "jsonwebtoken": "^9.0.2",
+    "koa": "^2.15.3",
+    "koa-body": "^6.0.1",
+    "koa-helmet": "^8.0.1",
+    "koa-logger": "^3.2.1",
+    "koa-static": "^5.0.0",
+    "mongoose": "^8.6.2",
+    "nanoid": "^5.0.7",
+    "nodemailer": "^6.9.15",
+    "slugify": "^1.6.6",
+    "winston": "^3.14.2"
+  },
+  "devDependencies": {
+    "@types/ali-oss": "^6.23.3",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/jsonwebtoken": "^9.0.6",
+    "@types/koa": "^2.15.0",
+    "@types/koa__router": "^12.0.4",
+    "@types/koa-logger": "^3.1.5",
+    "@types/koa-static": "^4.0.4",
+    "@types/node": "^22.7.4",
+    "@types/nodemailer": "^6.4.16",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.6.2"
+  }
+}
