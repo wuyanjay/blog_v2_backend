@@ -1,5 +1,5 @@
 import { Types } from 'mongoose'
-import { Category, type ICategory } from '../../models/Category'
+import { Category, type ICategory, type ICategoryData } from '../../models/Category'
 import { Post } from '../../models/Post'
 import { Errors } from '../../errors'
 import { ERROR_CODES } from '../../errors/errorCodes'
@@ -8,17 +8,17 @@ export const categoryService = {
 
   // ── Query ────────────────────────────────────────────────────────
 
-  async getCategoryTree(): Promise<ICategory[]> {
+  async getCategoryTree(): Promise<ICategoryData[]> {
     const all = await Category.find()
       .sort({ order: 1, name: 1 })
       .lean()
 
-    const map = new Map<string, ICategory & { children: ICategory[] }>()
+    const map = new Map<string, ICategoryData & { children: ICategoryData[] }>()
     all.forEach((cat) => {
       map.set(String(cat._id), { ...cat, children: [] })
     })
 
-    const roots: (ICategory & { children: ICategory[] })[] = []
+    const roots: (ICategoryData & { children: ICategoryData[] })[] = []
     all.forEach((cat) => {
       const node = map.get(String(cat._id))!
       if (!cat.parent) {
@@ -33,16 +33,16 @@ export const categoryService = {
       }
     })
 
-    return roots as unknown as ICategory[]
+    return roots as unknown as ICategoryData[]
   },
 
-  async getCategoryList(): Promise<ICategory[]> {
+  async getCategoryList(): Promise<ICategoryData[]> {
     return Category.find()
       .sort({ order: 1, name: 1 })
       .lean()
   },
 
-  async getCategoryBySlug(slug: string): Promise<ICategory> {
+  async getCategoryBySlug(slug: string): Promise<ICategoryData> {
     const category = await Category.findOne({ slug }).lean()
     if (!category) throw Errors.notFound('分类不存在')
     return category

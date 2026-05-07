@@ -2,7 +2,7 @@ import { Document, Schema, Types, model } from 'mongoose'
 import { nanoid } from 'nanoid'
 import slugify from 'slugify'
 
-export interface ICategory extends Document {
+export interface ICategoryData {
   name: string
   slug: string
   description: string
@@ -11,7 +11,10 @@ export interface ICategory extends Document {
   postCount: number
   createdAt: Date
   updatedAt: Date
+  _id: Types.ObjectId
 }
+
+export interface ICategory extends Document, ICategoryData {}
 
 const CategorySchema = new Schema<ICategory>(
   {
