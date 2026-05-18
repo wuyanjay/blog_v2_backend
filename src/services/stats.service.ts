@@ -11,13 +11,18 @@ function calcChange(current: number, previous: number): number {
   return Math.round(((current - previous) / previous) * 100)
 }
 
+function isOwner(currentUserId: string | undefined, targetUserId: string): boolean {
+  return currentUserId !== undefined && currentUserId === targetUserId
+}
+
 export const statsService = {
-  async getStats(userId: string, periodDays: number) {
+  async getStats(userId: string, periodDays: number, currentUserId?: string) {
     try {
       const user = await User.findById(userId).select('followersCount')
       if (!user) throw Errors.notFound('用户不存在')
 
       const authorId = new Types.ObjectId(userId)
+      const owner = isOwner(currentUserId, userId)
 
       const now = new Date()
       const periodMs = periodDays * 24 * 60 * 60 * 1000
@@ -29,6 +34,8 @@ export const statsService = {
         .select('_id')
         .lean()
         .then((posts) => posts.map((p) => p._id))
+
+      const visibilityFilter = owner ? {} : { visibility: 'public' as const }
 
       const [
         totalPosts,
@@ -42,30 +49,32 @@ export const statsService = {
         recentCreated,
         recentViewedIds,
       ] = await Promise.all([
-        Post.countDocuments({ author: authorId }),
+        Post.countDocuments({ author: authorId, ...visibilityFilter }),
 
         Post.aggregate([
-          { $match: { author: authorId } },
+          { $match: { author: authorId, ...visibilityFilter } },
           { $group: { _id: null, total: { $sum: '$viewCount' } } },
         ]).then((r) => r[0]?.total ?? 0),
 
         Post.countDocuments({
           author: authorId,
+          ...visibilityFilter,
           createdAt: { $gte: currentStart },
         }),
 
         Post.countDocuments({
           author: authorId,
+          ...visibilityFilter,
           createdAt: { $gte: previousStart, $lt: currentStart },
         }),
 
         Post.aggregate([
-          { $match: { author: authorId, createdAt: { $gte: currentStart } } },
+          { $match: { author: authorId, ...visibilityFilter, createdAt: { $gte: currentStart } } },
           { $group: { _id: null, total: { $sum: '$viewCount' } } },
         ]).then((r) => r[0]?.total ?? 0),
 
         Post.aggregate([
-          { $match: { author: authorId, createdAt: { $gte: previousStart, $lt: currentStart } } },
+          { $match: { author: authorId, ...visibilityFilter, createdAt: { $gte: previousStart, $lt: currentStart } } },
           { $group: { _id: null, total: { $sum: '$viewCount' } } },
         ]).then((r) => r[0]?.total ?? 0),
 
@@ -79,7 +88,7 @@ export const statsService = {
           createdAt: { $gte: previousStart, $lt: currentStart },
         }),
 
-        Post.find({ author: authorId })
+        Post.find({ author: authorId, ...(owner ? {} : { visibility: 'public' }) })
           .sort({ createdAt: -1 })
           .limit(5)
           .populate('author', 'username nickname avatar')
@@ -102,7 +111,7 @@ export const statsService = {
       ])
 
       const recentViewedPosts = await Post
-        .find({ _id: { $in: recentViewedIds } })
+        .find({ _id: { $in: recentViewedIds }, ...(owner ? {} : { visibility: 'public' }) })
         .populate('author', 'username nickname avatar')
         .select('title slug summary cover tags viewCount likeCount commentCount readTime createdAt updatedAt')
         .lean()

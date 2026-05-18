@@ -8,7 +8,8 @@ export const statsController = {
   async getStats(ctx: Context) {
     const { period } = (ctx.request.query ?? {}) as { period?: number }
     const periodDays = period ?? await getDaysSinceRegistration(ctx.params.id)
-    const data = await statsService.getStats(ctx.params.id, periodDays)
+    const currentUserId = ctx.state.user?.id as string | undefined
+    const data = await statsService.getStats(ctx.params.id, periodDays, currentUserId)
     success(ctx, data)
   },
 }
