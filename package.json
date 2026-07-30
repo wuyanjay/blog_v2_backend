@@ -8,6 +8,7 @@
     "dev": "ts-node-dev --respawn --transpile-only --watch src --debounce 500 src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
+    "test:stats": "npm run build && node test/stats.service.test.js",
     "seed:categories": "ts-node --transpile-only scripts/seed-categories.ts"
   },
   "dependencies": {

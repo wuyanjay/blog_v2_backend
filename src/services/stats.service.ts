@@ -6,40 +6,41 @@ import { User } from '../models/User'
 import { Errors } from '../errors'
 import { logger } from '../utils/logger'
 
-function calcChange(current: number, previous: number): number {
-  if (previous === 0) return current > 0 ? 100 : 0
+function calcChange(current: number, previous: number): number | null {
+  if (previous === 0) return current === 0 ? 0 : null
   return Math.round(((current - previous) / previous) * 100)
 }
 
-function isOwner(currentUserId: string | undefined, targetUserId: string): boolean {
-  return currentUserId !== undefined && currentUserId === targetUserId
+function isOwner(currentId: string | undefined, userId: string): boolean {
+  return currentId !== undefined && currentId === userId
 }
 
 export const statsService = {
-  async getStats(userId: string, periodDays: number, currentUserId?: string) {
+  async getStats(userId: string, days?: number, currentId?: string) {
     try {
-      const user = await User.findById(userId).select('followersCount')
+      const user = await User.findById(userId).select('_id')
       if (!user) throw Errors.notFound('用户不存在')
 
       const authorId = new Types.ObjectId(userId)
-      const owner = isOwner(currentUserId, userId)
-
+      const owner = isOwner(currentId, userId)
+      const visibility = owner ? {} : { visibility: 'public' as const }
       const now = new Date()
-      const periodMs = periodDays * 24 * 60 * 60 * 1000
-      const currentStart = new Date(now.getTime() - periodMs)
-      const previousStart = new Date(now.getTime() - 2 * periodMs)
+      const periodMs = days ? days * 24 * 60 * 60 * 1000 : 0
+      const start = days ? new Date(now.getTime() - periodMs) : null
+      const prevStart = days ? new Date(now.getTime() - 2 * periodMs) : null
+      const postDate = start ? { createdAt: { $gte: start } } : {}
+      const viewDate = start ? { createdAt: { $gte: start } } : {}
 
-      const visibilityFilter = owner ? {} : { visibility: 'public' as const }
-
-      const userPostIds = await Post
-        .find({ author: authorId, ...visibilityFilter })
+      const postIds = await Post
+        .find({ author: authorId, ...visibility })
         .select('_id')
         .lean()
-        .then((posts) => posts.map((p) => p._id))
+        .then((posts) => posts.map((post) => post._id))
 
       const [
         totalPosts,
         totalViews,
+        totalFollowers,
         currentPosts,
         previousPosts,
         currentViews,
@@ -49,60 +50,81 @@ export const statsService = {
         recentCreated,
         recentViewedIds,
       ] = await Promise.all([
-        Post.countDocuments({ author: authorId, ...visibilityFilter }),
+        Post.countDocuments({ author: authorId, ...visibility }),
 
         Post.aggregate([
-          { $match: { author: authorId, ...visibilityFilter } },
+          { $match: { author: authorId, ...visibility } },
           { $group: { _id: null, total: { $sum: '$viewCount' } } },
-        ]).then((r) => r[0]?.total ?? 0),
+        ]).then((rows) => rows[0]?.total ?? 0),
 
-        Post.countDocuments({
+        Follow.countDocuments({ following: authorId }),
+
+        days
+          ? Post.countDocuments({
+              author: authorId,
+              ...visibility,
+              ...postDate,
+            })
+          : Promise.resolve(0),
+
+        days && start && prevStart
+          ? Post.countDocuments({
+              author: authorId,
+              ...visibility,
+              createdAt: { $gte: prevStart, $lt: start },
+            })
+          : Promise.resolve(0),
+
+        days && postIds.length > 0
+          ? ViewLog.countDocuments({
+              post: { $in: postIds },
+              ...viewDate,
+            })
+          : Promise.resolve(0),
+
+        days && start && prevStart && postIds.length > 0
+          ? ViewLog.countDocuments({
+              post: { $in: postIds },
+              createdAt: { $gte: prevStart, $lt: start },
+            })
+          : Promise.resolve(0),
+
+        days && start
+          ? Follow.countDocuments({
+              following: authorId,
+              createdAt: { $gte: start },
+            })
+          : Promise.resolve(0),
+
+        days && start && prevStart
+          ? Follow.countDocuments({
+              following: authorId,
+              createdAt: { $gte: prevStart, $lt: start },
+            })
+          : Promise.resolve(0),
+
+        Post.find({
           author: authorId,
-          ...visibilityFilter,
-          createdAt: { $gte: currentStart },
-        }),
-
-        Post.countDocuments({
-          author: authorId,
-          ...visibilityFilter,
-          createdAt: { $gte: previousStart, $lt: currentStart },
-        }),
-
-        userPostIds.length === 0
-          ? Promise.resolve(0)
-          : ViewLog.countDocuments({
-              post: { $in: userPostIds },
-              createdAt: { $gte: currentStart },
-            }),
-
-        userPostIds.length === 0
-          ? Promise.resolve(0)
-          : ViewLog.countDocuments({
-              post: { $in: userPostIds },
-              createdAt: { $gte: previousStart, $lt: currentStart },
-            }),
-
-        Follow.countDocuments({
-          following: authorId,
-          createdAt: { $gte: currentStart },
-        }),
-
-        Follow.countDocuments({
-          following: authorId,
-          createdAt: { $gte: previousStart, $lt: currentStart },
-        }),
-
-        Post.find({ author: authorId, ...(owner ? {} : { visibility: 'public' }) })
+          ...visibility,
+          ...postDate,
+        })
           .sort({ createdAt: -1 })
           .limit(5)
           .populate('author', 'username nickname avatar')
-          .select('title slug summary cover tags viewCount likeCount commentCount readTime createdAt updatedAt visibility')
+          .select(
+            'title slug summary cover tags visibility viewCount likeCount commentCount readTime createdAt updatedAt',
+          )
           .lean(),
 
-        userPostIds.length === 0
+        postIds.length === 0
           ? Promise.resolve([] as Types.ObjectId[])
           : ViewLog.aggregate([
-              { $match: { post: { $in: userPostIds } } },
+              {
+                $match: {
+                  post: { $in: postIds },
+                  ...viewDate,
+                },
+              },
               {
                 $group: {
                   _id: '$post',
@@ -111,36 +133,54 @@ export const statsService = {
               },
               { $sort: { lastViewedAt: -1 } },
               { $limit: 5 },
-            ]).then((results) => results.map((r) => r._id)),
+            ]).then((rows) => rows.map((row) => row._id)),
       ])
 
-      const recentViewedPosts = await Post
-        .find({ _id: { $in: recentViewedIds }, ...(owner ? {} : { visibility: 'public' }) })
+      const viewedPosts = await Post
+        .find({ _id: { $in: recentViewedIds }, ...visibility })
         .populate('author', 'username nickname avatar')
-        .select('title slug summary cover tags viewCount likeCount commentCount readTime createdAt updatedAt')
+        .select(
+          'title slug summary cover tags visibility viewCount likeCount commentCount readTime createdAt updatedAt',
+        )
         .lean()
 
-      const viewedIdStrings = (recentViewedIds as Types.ObjectId[]).map((id) => id.toString())
-      const recentViewed = viewedIdStrings
-        .map((id) => recentViewedPosts.find((p) => (p as any)._id.toString() === id))
+      const viewedIds = (recentViewedIds as Types.ObjectId[]).map(String)
+      const recentViewed = viewedIds
+        .map((id) => viewedPosts.find((post) => String(post._id) === id))
         .filter(Boolean)
+
+      const periodStats = days
+        ? {
+            posts: currentPosts,
+            views: currentViews,
+            followers: currentFollowers,
+          }
+        : {
+            posts: totalPosts,
+            views: totalViews,
+            followers: totalFollowers,
+          }
+
+      const changes = days
+        ? {
+            posts: calcChange(currentPosts, previousPosts),
+            views: calcChange(currentViews, previousViews),
+            followers: calcChange(currentFollowers, previousFollowers),
+          }
+        : {
+            posts: null,
+            views: null,
+            followers: null,
+          }
 
       return {
         totals: {
           posts: totalPosts,
           views: totalViews,
-          followers: user.followersCount,
+          followers: totalFollowers,
         },
-        periodStats: {
-          posts: currentPosts,
-          views: currentViews,
-          followers: currentFollowers,
-        },
-        changes: {
-          posts: calcChange(currentPosts, previousPosts),
-          views: calcChange(currentViews, previousViews),
-          followers: calcChange(currentFollowers, previousFollowers),
-        },
+        periodStats,
+        changes,
         recentPosts: {
           created: recentCreated,
           viewed: recentViewed,
@@ -150,7 +190,7 @@ export const statsService = {
       if (error && typeof error === 'object' && 'isOperational' in error) {
         throw error
       }
-      logger.error('Stats query failed', { error, userId, periodDays })
+      logger.error('Stats query failed', { error, userId, days })
       throw Errors.internal('统计数据查询失败')
     }
   },
