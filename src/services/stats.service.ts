@@ -29,13 +29,13 @@ export const statsService = {
       const currentStart = new Date(now.getTime() - periodMs)
       const previousStart = new Date(now.getTime() - 2 * periodMs)
 
+      const visibilityFilter = owner ? {} : { visibility: 'public' as const }
+
       const userPostIds = await Post
-        .find({ author: authorId })
+        .find({ author: authorId, ...visibilityFilter })
         .select('_id')
         .lean()
         .then((posts) => posts.map((p) => p._id))
-
-      const visibilityFilter = owner ? {} : { visibility: 'public' as const }
 
       const [
         totalPosts,
@@ -68,15 +68,19 @@ export const statsService = {
           createdAt: { $gte: previousStart, $lt: currentStart },
         }),
 
-        Post.aggregate([
-          { $match: { author: authorId, ...visibilityFilter, createdAt: { $gte: currentStart } } },
-          { $group: { _id: null, total: { $sum: '$viewCount' } } },
-        ]).then((r) => r[0]?.total ?? 0),
+        userPostIds.length === 0
+          ? Promise.resolve(0)
+          : ViewLog.countDocuments({
+              post: { $in: userPostIds },
+              createdAt: { $gte: currentStart },
+            }),
 
-        Post.aggregate([
-          { $match: { author: authorId, ...visibilityFilter, createdAt: { $gte: previousStart, $lt: currentStart } } },
-          { $group: { _id: null, total: { $sum: '$viewCount' } } },
-        ]).then((r) => r[0]?.total ?? 0),
+        userPostIds.length === 0
+          ? Promise.resolve(0)
+          : ViewLog.countDocuments({
+              post: { $in: userPostIds },
+              createdAt: { $gte: previousStart, $lt: currentStart },
+            }),
 
         Follow.countDocuments({
           following: authorId,
